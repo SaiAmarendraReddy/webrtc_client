@@ -35,7 +35,7 @@ function App() {
     const media = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
     console.log("******** stream url ");
     const videoElement = document.querySelector("video#localVideo")
-    setLclStream(media);
+    //setLclStream(media);
     videoElement.srcObject = media;
     return media;
   }
