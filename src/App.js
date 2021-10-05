@@ -12,7 +12,7 @@ function App() {
   //create peer object
   const [peer, setPeer] = useState(new RTCPeerConnection(config));
   //localDescp
-  const [lclStream,setLclStream] = useState();
+  const [lclStream, setLclStream] = useState();
   //room id
   const [roomID, setRoomID] = useState('54378');
   //friend SocketID
@@ -43,7 +43,7 @@ function App() {
   useEffect(() => {
     //check weather peer connection object create or not
     console.log(peer);
-    
+
     //peerConnection();
 
     //socket connection
@@ -57,64 +57,68 @@ function App() {
 
     //friends in the room
     //incoming data is {noOfClients,friend}
-    socket.on("friends", async (friends) => {
-      console.log("friends ", friends)
+    socket.on("friends", async ({ noOfClients, friend }) => {
+      console.log(`******* clients present in the room, no.of clients ${noOfClients}, friend socket id ${friend}`)
       //2 sockets present in the room
-      if (friends.noOfClients >= 2) {
+      if (noOfClients >= 2) {
         //set friend socketID
         // setFriendID(friends.friend);
-        friendID = friends.friend;
+        friendID = friend;
         //make isoffer to true
         setIsOffer(true);
         //create offer and send to another client
         //formate to send {from,to,sdp}
-        await peerConnection();
-        await createOffer()
+        await peerConnection(true);
+        // await createOffer()
         // console.log("ready to create and send offer");
       }
     })
 
     //if we receive offer from another client through server
-    socket.on("offer", async (offer) => {
-      console.log(`offer from Another client **** ${JSON.stringify(offer)}`);
-
+    socket.on("offer", async ({ from, to, sdp }) => {
+      console.log(`******* offer from Another client, from : ${from}, to: ${to}, sdp:${JSON.stringify(sdp)}`);
+      //set Friend
+      friendID = from;
+      await peerConnection(false);
       //if we recevie the offer send the answer to the another client
       //1.call setRemoteDescription
-      await peer.setRemoteDescription(offer.sdp);
-      console.log(`remoteDescription ${JSON.stringify(peer.remoteDescription)}`);
+      await peer.setRemoteDescription(sdp);
+      console.log(`****** remoteDescription ${JSON.stringify(peer.remoteDescription)}`);
       //2.create answer and send it to the server
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
-      console.log(`local Description answer ${JSON.stringify(peer.localDescription)}`);
+      console.log(`***** local Description answer ${JSON.stringify(peer.localDescription)}`);
 
       //send answer formate {from,to,sdp(answer)}
-      let objFormate = { from: myID, to: offer.from, sdp: peer.localDescription }
-      console.log("******* answer formate to send to client", objFormate)
+      let objFormate = { from: myID, to: from, sdp: peer.localDescription }
+      // console.log("******* answer formate to send to client", objFormate)
       // //send the answer to another client through server
       // socket.emit('answer', peer.localDescription);
+      // await peerConnection(false);
       socket.emit('answer', objFormate);
     })
 
     //if we receive answer from another client through server
-    socket.on("answer", async (remoteAnswer) => {
-      console.log(`answer from Another client  ${JSON.stringify(remoteAnswer)}`);
-      myID = remoteAnswer.to;
-      friendID = remoteAnswer.from;
-      console.log("******** myID ", myID, " friend id ***** ", friendID);
+    socket.on("answer", async ({ from, to, sdp }) => {
+      console.log(`******* answer from Another client, from : ${from}, to: ${to}, sdp:${JSON.stringify(sdp)}`);
+      myID = to;
+      friendID = from;
+
 
       //now call remote description
       // await peer.setRemoteDescription(remoteAnswer);
-      await peer.setRemoteDescription(remoteAnswer.sdp);
+      await peer.setRemoteDescription(sdp);
     })
 
     //if we receive iceCandidate from another client through server
-    socket.on("iceCandidate", async (iceCand) => {
-      console.log(`iceCandidate from client  ${JSON.stringify(iceCand)}`);
-      console.log("**** ice Candidate from another client ",iceCand.candidate);
-
+    socket.on("iceCandidate", async ({ from, to, candidate }) => {
+      console.log(`******* iceCandidate from Another client, from : ${from}, to: ${to}, sdp:${JSON.stringify(candidate)}`);
+      // console.log("**** ice Candidate from another client ",iceCand.candidate);
       //add icecandidate to the local
       //await peer.addIceCandidate(iceCand);
-      await peer.addIceCandidate(iceCand.candidate);
+      if (candidate) {
+        await peer.addIceCandidate(candidate);
+      }
     })
 
   }, []);
@@ -123,10 +127,10 @@ function App() {
   const createOffer = async () => {
     //create offer
     const offer = await peer.createOffer();
-    console.log("offer created ", offer);
+    console.log("****** offer created ", offer);
     //setLocalDescription
     await peer.setLocalDescription(offer)
-    console.log("local description offer", peer.localDescription);
+    // console.log("local description offer", peer.localDescription);
     //formate the data to send to peer
     //formate should be {from,to,sdp}
     let objFormate = { from: myID, to: friendID, sdp: peer.localDescription };
@@ -137,16 +141,17 @@ function App() {
   }
 
   //create peer
-  const peerConnection = async () => {
+  const peerConnection = async (off) => {
     //send our local IceCandidate to server
     peer.onicecandidate = async (event) => {
-      console.log("********* candidate ", event.candidate, " **** ", myID, " ****** friendID ", friendID);
+      console.log("********* local ice candidate ", event.candidate, " **** ", myID, " ****** friendID ", friendID);
       //send Data formate
       let objFormate = { from: myID, to: friendID, candidate: event.candidate };
-      if (event.candidate) {
+      //if we have candidate and remotedescription
+      if (event.candidate && peer.remoteDescription) {
         //send to another peer
         //socket.emit("iceCandidate", event.candidate);
-        console.log(" ******** my iceCandidate ", objFormate);
+        // console.log(" ******** my iceCandidate ", objFormate);
         socket.emit("iceCandidate", objFormate);
       }
     }
@@ -162,7 +167,7 @@ function App() {
     //negoation needed
     peer.onnegotiationneeded = async () => {
       //if 2 clients present then create offer
-      if (isOffer) {
+      if (off) {
         //create the offer and send to another client
         await createOffer();
       }
@@ -171,22 +176,25 @@ function App() {
     //get the remote stream 
     peer.ontrack = (event) => {
       const videoElement = document.querySelector("video#remoteVideo");
+      const h1elemnt = document.querySelector("h1#waiting");
 
-      console.log(`Remote Stream *** ${JSON.stringify(event.streams[0])}`)
-      if(event.streams[0])
-      {
+      console.log(`****** Remote Stream ${JSON.stringify(event.streams[0])}`)
+      if (event.streams[0]) {
+        h1elemnt.style.display = 'none';
+        videoElement.style.display = 'block'
         videoElement.srcObject = event.streams[0];
-        console.log("********** remote streams ",event.streams[0])
-        //alert("hi")
+        console.log("********** remote streams ", event.streams[0])
       }
-      else{
+      else {
         //alert("no remote")
+        h1elemnt.style.display = 'block';
+        videoElement.style.display = 'none'
       }
     };
 
     //add localStream
     const localStream = await localStrm()
-    /* console.log("localstream ",localStream) */
+    console.log("localstream ", localStream)
     if (localStream) {
       //add the track, to transmitted to another client
       localStream.getTracks().forEach((track) => {
@@ -195,8 +203,9 @@ function App() {
     }
   }
 
-  const roomJoin = () => {
+  const roomJoin = async () => {
     socket.emit('roomJoin', roomID);
+    await localStrm();
   }
 
   return (
@@ -208,9 +217,10 @@ function App() {
         <button onClick={roomJoin}>join Room</button>
         <input placeholder='enter room ID' onChange={(e) => { setRoomID(e.target.value) }} />
         <h1>Local</h1>
-        <video id="localVideo" autoplay playsinline controls={true}/>
+        <video id="localVideo" autoplay playsinline controls={true} />
         <h1>Remote peer</h1>
-        <video id="remoteVideo" autoplay playsinline controls={true}/>
+        <video id="remoteVideo" autoplay playsinline controls={true} style={{display:'none'}}/> 
+        <h1 id="waiting" style={{display:'block'}}>waiting.......</h1>
       </header>
 
     </div>
